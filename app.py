@@ -16,9 +16,19 @@ import os
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
+
+# 暂固定为东八区（北京时间）。Streamlit Cloud 服务器是 UTC，直接 today_cn()
+# 会在 UTC 21:00~23:59 期间比中国"今天"早一天。
+CN_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def today_cn() -> date:
+    """以东八区为准的"今天"。"""
+    return datetime.now(CN_TZ).date()
 
 from core.almanac import get_day_almanac, get_birth_chart, EVENT_KEYWORDS
 from core.hours import (
@@ -369,7 +379,7 @@ def persons_input(prefix: str, count: int = 1) -> list[dict]:
             with c2:
                 b_date = st.date_input(
                     "出生日期", value=date(1990, 1, 1),
-                    min_value=date(1900, 1, 1), max_value=date.today(),
+                    min_value=date(1900, 1, 1), max_value=today_cn(),
                     key=f"{prefix}_bd_{i}",
                 )
             with c3:
@@ -408,7 +418,7 @@ with TABS[0]:
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         query_date = st.date_input(
-            "查询日期", value=date.today(),
+            "查询日期", value=today_cn(),
             min_value=date(1900, 1, 1), max_value=date(2100, 12, 31),
             key="single_date",
         )
@@ -486,7 +496,7 @@ with TABS[1]:
     c1, c2 = st.columns(2)
     with c1:
         start_date = st.date_input(
-            "搜索起点", value=date.today(),
+            "搜索起点", value=today_cn(),
             min_value=date(1900, 1, 1), max_value=date(2100, 12, 31),
             key="rec_start",
         )
@@ -548,7 +558,7 @@ with TABS[1]:
             st.download_button(
                 "📥 iCal (日历)",
                 data=export_ical(results, st.session_state.get("last_event", "黄道吉日")),
-                file_name=f"jiri_{date.today().isoformat()}.ics",
+                file_name=f"jiri_{today_cn().isoformat()}.ics",
                 mime="text/calendar",
                 use_container_width=True,
             )
@@ -556,7 +566,7 @@ with TABS[1]:
             st.download_button(
                 "📥 JSON",
                 data=export_json(results),
-                file_name=f"jiri_{date.today().isoformat()}.json",
+                file_name=f"jiri_{today_cn().isoformat()}.json",
                 mime="application/json",
                 use_container_width=True,
             )
@@ -607,9 +617,9 @@ with TABS[2]:
 
     c1, c2, c3 = st.columns([1, 1, 2])
     with c1:
-        m_year = st.number_input("年", value=date.today().year, min_value=1900, max_value=2100, key="mv_y")
+        m_year = st.number_input("年", value=today_cn().year, min_value=1900, max_value=2100, key="mv_y")
     with c2:
-        m_month = st.number_input("月", value=date.today().month, min_value=1, max_value=12, key="mv_m")
+        m_month = st.number_input("月", value=today_cn().month, min_value=1, max_value=12, key="mv_m")
     with c3:
         m_event = st.selectbox("评分按事项", ["（通用吉凶）"] + list(EVENT_KEYWORDS.keys()), key="mv_e")
     m_event_arg = None if m_event.startswith("（") else m_event
@@ -697,7 +707,7 @@ with TABS[3]:
     c1, c2, c3 = st.columns(3)
     with c1:
         bz_date = st.date_input("出生日期", value=date(1990, 1, 1),
-                                min_value=date(1900, 1, 1), max_value=date.today(),
+                                min_value=date(1900, 1, 1), max_value=today_cn(),
                                 key="bz_date")
     with c2:
         bz_time = st.time_input("出生时间", value=time(12, 0), key="bz_time")
@@ -775,7 +785,7 @@ with TABS[3]:
     c1, c2 = st.columns([1, 3])
     with c1:
         ly_year = st.number_input(
-            "流年", value=date.today().year, min_value=1900, max_value=2100, key="ly_y",
+            "流年", value=today_cn().year, min_value=1900, max_value=2100, key="ly_y",
         )
     target_dy = None
     for d in yun_eval:
@@ -798,7 +808,7 @@ with TABS[4]:
     st.markdown("**年度方位忌宜 + 个人本命卦 + 流年九宫飞星。**")
     c1, c2 = st.columns([1, 2])
     with c1:
-        dir_year = st.number_input("年份", value=date.today().year, min_value=1900, max_value=2100, key="dir_y")
+        dir_year = st.number_input("年份", value=today_cn().year, min_value=1900, max_value=2100, key="dir_y")
     da = year_directions(int(dir_year))
 
     st.markdown(f"### {dir_year} 年（{da.year_gz}）方位")
@@ -888,13 +898,13 @@ with TABS[5]:
     with c1:
         st.markdown("#### 男方")
         m_date = st.date_input("出生日期", value=date(1990, 1, 1),
-                               min_value=date(1900, 1, 1), max_value=date.today(),
+                               min_value=date(1900, 1, 1), max_value=today_cn(),
                                key="hh_m_date")
         m_time = st.time_input("出生时间", value=time(12, 0), key="hh_m_time")
     with c2:
         st.markdown("#### 女方")
         f_date = st.date_input("出生日期", value=date(1992, 1, 1),
-                               min_value=date(1900, 1, 1), max_value=date.today(),
+                               min_value=date(1900, 1, 1), max_value=today_cn(),
                                key="hh_f_date")
         f_time = st.time_input("出生时间", value=time(12, 0), key="hh_f_time")
 
@@ -927,7 +937,7 @@ with TABS[5]:
     st.markdown("### 嫁娶周堂图")
     st.caption("传统嫁娶择日另需校验：婚日落在周堂八位（夫姑堂翁第灶妇厨）何位？落凶位则当事人短暂回避。")
     zt_date = st.date_input(
-        "拟定婚日", value=date.today(),
+        "拟定婚日", value=today_cn(),
         min_value=date(1900, 1, 1), max_value=date(2100, 12, 31),
         key="zt_date",
     )
@@ -964,7 +974,7 @@ with TABS[5]:
 with TABS[6]:
     c1, c2 = st.columns([1, 3])
     with c1:
-        cal_year = st.number_input("年份", value=date.today().year, min_value=1900, max_value=2100, key="cal_y")
+        cal_year = st.number_input("年份", value=today_cn().year, min_value=1900, max_value=2100, key="cal_y")
 
     st.markdown("### 二十四节气")
     jq_df = pd.DataFrame([
@@ -993,7 +1003,7 @@ with TABS[6]:
     st.markdown("### 月相速查")
     c1, c2 = st.columns([1, 2])
     with c1:
-        moon_date = st.date_input("查询日期", value=date.today(), key="moon_d")
+        moon_date = st.date_input("查询日期", value=today_cn(), key="moon_d")
     with c2:
         st.metric("月相", moon_phase(moon_date))
 # ============================================================
@@ -1004,7 +1014,7 @@ with TABS[7]:
     c1, c2, c3 = st.columns(3)
     with c1:
         zw_date = st.date_input("出生日期", value=date(1990, 1, 1),
-                                min_value=date(1900, 1, 1), max_value=date.today(),
+                                min_value=date(1900, 1, 1), max_value=today_cn(),
                                 key="zw_date")
     with c2:
         zw_time = st.time_input("出生时间", value=time(12, 0), key="zw_time")

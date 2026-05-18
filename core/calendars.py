@@ -4,8 +4,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from lunar_python import Solar
+
+
+CN_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _today_cn() -> date:
+    return datetime.now(CN_TZ).date()
 
 
 JIEQI_ORDER = [
@@ -28,7 +36,7 @@ def get_jieqi_table(year: int) -> list[JieQiInfo]:
     solar = Solar.fromYmd(year, 6, 15)
     l = solar.getLunar()
     raw = l.getJieQiTable()
-    today = date.today()
+    today = _today_cn()
     out = []
     for name in JIEQI_ORDER:
         jq = raw.get(name)
