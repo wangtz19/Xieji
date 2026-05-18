@@ -58,6 +58,55 @@ st.set_page_config(
     layout="wide",
 )
 
+# === JS 注入：把日历弹层的英文（周名/月名/Today）替换为中文 ===
+# Streamlit 未暴露 locale 配置（issue #4076），baseweb 的日历用 <p>Su</p> 这种
+# 元素渲染周名，CSS ::after 无法可靠覆盖。改用 MutationObserver 监听 DOM 变化，
+# 在日历弹出时遍历文本节点替换。组件在 iframe 内，通过 window.parent.document
+# 操作主页（同源，浏览器允许）。
+st.components.v1.html(
+    """
+<script>
+(function () {
+    const doc = window.parent.document;
+    if (doc.__xieji_cal_i18n__) return;     // 整个会话只装一次 observer
+    doc.__xieji_cal_i18n__ = true;
+
+    const map = {
+        // 周名缩写（baseweb 默认 2 字母）
+        'Su':'日','Mo':'一','Tu':'二','We':'三','Th':'四','Fr':'五','Sa':'六',
+        // 周名全称（aria-label 或 tooltip 可能用到）
+        'Sun':'日','Mon':'一','Tue':'二','Wed':'三','Thu':'四','Fri':'五','Sat':'六',
+        'Sunday':'星期日','Monday':'星期一','Tuesday':'星期二',
+        'Wednesday':'星期三','Thursday':'星期四','Friday':'星期五','Saturday':'星期六',
+        // 月份
+        'January':'一月','February':'二月','March':'三月','April':'四月',
+        'May':'五月','June':'六月','July':'七月','August':'八月',
+        'September':'九月','October':'十月','November':'十一月','December':'十二月',
+        // 按钮
+        'Today':'今日','today':'今日',
+    };
+
+    function sweep() {
+        const cals = doc.querySelectorAll('[data-baseweb="calendar"]');
+        cals.forEach(cal => {
+            const walker = doc.createTreeWalker(cal, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+                const t = node.textContent.trim();
+                if (map[t]) node.textContent = map[t];
+            }
+        });
+    }
+
+    new MutationObserver(() => requestAnimationFrame(sweep))
+        .observe(doc.body, { childList: true, subtree: true });
+    sweep();
+})();
+</script>
+""",
+    height=0,
+)
+
 # 侧边栏 logo（折叠态也会显示一个小图）
 st.logo(LOGO_PATH, size="large")
 
@@ -448,6 +497,7 @@ with TABS[1]:
         "排除星期（不希望事项落在某些星期可勾选）",
         ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
         default=[],
+        placeholder="留空 = 不排除任何星期",
         key="rec_wd",
     )
     weekday_map = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4, "周六": 5, "周日": 6}
