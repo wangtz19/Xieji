@@ -19,9 +19,26 @@ from core.almanac import get_day_almanac
 _FONT_REG = False
 FONT_NAME = "SourceHanSerifSC"
 FONT_PATH_CANDIDATES = [
+    # Linux - 思源 / Noto / 微雅黑
     "/usr/share/fonts/sourcehan/SourceHanSerifSC-Regular.otf",
     "/usr/share/fonts/sourcehan/SourceHanSerifSC-Bold.otf",
+    "/usr/share/fonts/opentype/source-han-serif/SourceHanSerifSC-Regular.otf",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+    "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
     "/root/.fonts/MSYH.TTC",
+    # macOS
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/Supplemental/Songti.ttc",
+    "/Library/Fonts/Songti.ttc",
+    # Windows
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/msyh.ttf",
+    "C:/Windows/Fonts/simsun.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
 ]
 
 LOGO_PATH = Path(__file__).parent.parent / "assets" / "logo.png"

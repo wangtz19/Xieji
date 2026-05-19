@@ -23,13 +23,29 @@ from divination.scoring import score_day, verdict
 
 # 字体探测
 FONT_CANDIDATES = [
+    # Linux
     "/usr/share/fonts/sourcehan/SourceHanSerifSC-Bold.otf",
     "/usr/share/fonts/sourcehan/SourceHanSerifSC-Regular.otf",
+    "/usr/share/fonts/opentype/source-han-serif/SourceHanSerifSC-Regular.otf",
     "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
     "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+    "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
     "/root/.fonts/MSYH.TTC",
     "/root/.fonts/MSYHBD.TTC",
+    # macOS
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/Supplemental/Songti.ttc",
+    "/Library/Fonts/Songti.ttc",
+    # Windows
+    "C:/Windows/Fonts/msyhbd.ttc",
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/msyh.ttf",
+    "C:/Windows/Fonts/simhei.ttf",
+    "C:/Windows/Fonts/simsun.ttc",
 ]
 LOGO_PATH = Path(__file__).parent.parent / "assets" / "logo.png"
 
@@ -55,10 +71,14 @@ VERDICT_COLORS = {
 
 
 def render_share_poster(d: date, event: Optional[str] = None,
-                        school: str = "综合") -> bytes:
-    """渲染指定日期的海报 PNG，返回字节流。"""
+                        school: str = "综合",
+                        persons: Optional[list[dict]] = None) -> bytes:
+    """渲染指定日期的海报 PNG，返回字节流。
+
+    persons 可选；若提供，则按"个人化每日运势"评分（与单日 Tab、Hero 一致）。
+    """
     a = get_day_almanac(d)
-    sb = score_day(a, event=event, school=school)
+    sb = score_day(a, event=event, persons=persons, school=school)
     v = verdict(sb.score, sb.fatal)
 
     W, H = 720, 1280

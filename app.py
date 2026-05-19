@@ -69,6 +69,92 @@ st.set_page_config(
     layout="wide",
 )
 
+
+# ============================================================
+# 缓存层
+# st.cache_data 用 pickle 序列化结果，要求入参可哈希；
+# 因此 dataclass / list[dict] 一律先在 wrapper 里降级成基础类型再做 key。
+# ============================================================
+
+def _persons_key(persons: Optional[list[dict]]) -> tuple:
+    if not persons:
+        return ()
+    return tuple(
+        tuple(sorted(
+            (k, tuple(v) if isinstance(v, list) else v)
+            for k, v in p.items()
+        ))
+        for p in persons
+    )
+
+
+@st.cache_data(ttl=3600, max_entries=2000, show_spinner=False)
+def cached_almanac(d: date):
+    return get_day_almanac(d)
+
+
+@st.cache_data(ttl=3600, max_entries=5000, show_spinner=False)
+def cached_score(
+    d: date,
+    event: Optional[str] = None,
+    persons_key: tuple = (),
+    school: str = "综合",
+):
+    a = cached_almanac(d)
+    persons = [dict(p) for p in persons_key] if persons_key else None
+    return score_day(a, event=event, persons=persons, school=school)
+
+
+def score_day_cached(a, event=None, persons=None, school="综合"):
+    return cached_score(a.solar_date, event, _persons_key(persons), school)
+
+
+@st.cache_data(ttl=3600, max_entries=500, show_spinner=False)
+def cached_bazi(birth_dt: datetime, gender: int = 1):
+    return build_bazi(birth_dt, gender=gender)
+
+
+@st.cache_data(ttl=1800, max_entries=200, show_spinner=False)
+def cached_recommend(
+    event: str,
+    persons_key: tuple,
+    start: date,
+    days: int,
+    top_n: int,
+    school: str,
+    exclude_weekdays_key: tuple,
+):
+    persons = [dict(p) for p in persons_key] if persons_key else None
+    excl = set(exclude_weekdays_key) if exclude_weekdays_key else None
+    return recommend_days(
+        event=event, persons=persons,
+        start=start, days=days, top_n=top_n,
+        school=school, exclude_weekdays=excl,
+    )
+
+
+@st.cache_data(ttl=3600, max_entries=500, show_spinner=False)
+def cached_hour_slots(d: date):
+    return get_hour_slots(d)
+
+
+# ============================================================
+# URL Query Param 深链：?date=YYYY-MM-DD 自动填到单日 Tab；
+# ?event=嫁娶 / ?tab=compare 可后续扩展。
+# 关键约束：必须在 widget 首次创建之前写 session_state，否则报错。
+# ============================================================
+def _consume_url_params():
+    qp = st.query_params
+    raw = qp.get("date")
+    if raw and "single_date" not in st.session_state:
+        try:
+            st.session_state["single_date"] = date.fromisoformat(raw)
+        except ValueError:
+            pass
+
+_consume_url_params()
+
+
 # === JS 注入：把日历弹层的英文（周名/月名/Today）替换为中文 ===
 # Streamlit 未暴露 locale 配置（issue #4076），baseweb 的日历用 <p>Su</p> 这种
 # 元素渲染周名，CSS ::after 无法可靠覆盖。改用 MutationObserver 监听 DOM 变化，
@@ -239,7 +325,12 @@ with st.sidebar:
             st.markdown("**⭐ 收藏**")
             for fav in st.session_state.favorites[:10]:
                 c1, c2 = st.columns([4, 1])
-                c1.markdown(f"[`{fav}`](?date={fav})")
+                if c1.button(f"📅 {fav}", key=f"jump_fav_{fav}",
+                             help="跳转到单日 Tab 查看该日",
+                             use_container_width=True):
+                    st.session_state["single_date"] = date.fromisoformat(fav)
+                    st.query_params["date"] = fav
+                    st.rerun()
                 if c2.button("✕", key=f"unfav_{fav}", help="移除收藏"):
                     st.session_state.favorites.remove(fav)
                     st.rerun()
@@ -249,7 +340,12 @@ with st.sidebar:
             st.markdown("**🕘 最近查询**")
             for h in st.session_state.query_history[:8]:
                 c1, c2 = st.columns([4, 1])
-                c1.code(h, language=None)
+                if c1.button(f"🔎 {h}", key=f"jump_hist_{h}",
+                             help="跳转到单日 Tab 查看该日",
+                             use_container_width=True):
+                    st.session_state["single_date"] = date.fromisoformat(h)
+                    st.query_params["date"] = h
+                    st.rerun()
                 if c2.button("⭐", key=f"fav_{h}", help="加入收藏"):
                     if h not in st.session_state.favorites:
                         st.session_state.favorites.insert(0, h)
@@ -291,7 +387,7 @@ with st.sidebar:
             if city != "不校正":
                 _my_dt = correct_birth_to_true_solar(_my_dt, city)
             try:
-                _my_bz = build_bazi(_my_dt, gender=1 if _my_gender == "男" else 0)
+                _my_bz = cached_bazi(_my_dt, gender=1 if _my_gender == "男" else 0)
                 st.session_state.my_birth = {
                     "label": "本人",
                     "year_zhi": _my_bz.year_zhi,
@@ -339,11 +435,11 @@ def llm_or_rule_summary(result: dict, event: Optional[str] = None,
 # 今日速览 hero（在 tabs 之上，打开即见）
 # ============================================================
 _today = today_cn()
-_today_a = get_day_almanac(_today)
+_today_a = cached_almanac(_today)
 
 # 如果用户在侧栏配置了"我的生辰"，hero 评分就以个人视角计算
 _my_persons = [st.session_state["my_birth"]] if st.session_state.get("my_birth") else []
-_today_sb = score_day(_today_a, persons=_my_persons, school=school)
+_today_sb = score_day_cached(_today_a, persons=_my_persons, school=school)
 _today_v = verdict(_today_sb.score, _today_sb.fatal)
 
 _HERO_COLOR_MAP = {
@@ -557,7 +653,7 @@ def render_sources(a, taboos: dict):
 
 
 def render_hour_table(d: date):
-    slots = get_hour_slots(d)
+    slots = cached_hour_slots(d)
     df = pd.DataFrame([
         {
             "时辰": s.name,
@@ -602,7 +698,7 @@ def persons_input(prefix: str, count: int = 1) -> list[dict]:
                     "性别", ["男", "女"], key=f"{prefix}_g_{i}",
                 )
             dt = maybe_correct(datetime.combine(b_date, b_time))
-            bz = build_bazi(dt, gender=1 if gender == "男" else 0)
+            bz = cached_bazi(dt, gender=1 if gender == "男" else 0)
             out.append({
                 "label": label,
                 "year_zhi": bz.year_zhi,
@@ -643,8 +739,8 @@ with TABS[0]:
     persons = persons_input("single", person_count) if person_count > 0 else []
     event_arg = None if event_opt.startswith("（不") else event_opt
 
-    a = get_day_almanac(query_date)
-    sb = score_day(a, event=event_arg, persons=persons, school=school)
+    a = cached_almanac(query_date)
+    sb = score_day_cached(a, event=event_arg, persons=persons, school=school)
     v = verdict(sb.score, sb.fatal)
 
     render_almanac_card(a, sb.score, v)
@@ -657,6 +753,10 @@ with TABS[0]:
         st.session_state.query_history.remove(_q_iso)
     st.session_state.query_history.insert(0, _q_iso)
     st.session_state.query_history = st.session_state.query_history[:20]
+
+    _url_date_outdated = st.query_params.get("date") != _q_iso
+    if _url_date_outdated:
+        st.query_params["date"] = _q_iso
 
     _fav_c1, _fav_c2 = st.columns([1, 4])
     with _fav_c1:
@@ -717,7 +817,10 @@ with TABS[0]:
     with exp_c2:
         if st.button("🖼️ 生成分享海报 PNG", key="single_png_btn", use_container_width=True):
             with st.spinner("生成海报中…"):
-                png_bytes = render_share_poster(query_date, event=event_arg, school=school)
+                png_bytes = render_share_poster(
+                    query_date, event=event_arg, school=school,
+                    persons=persons or _my_persons or None,
+                )
             st.download_button(
                 "📥 下载海报",
                 data=png_bytes,
@@ -767,10 +870,12 @@ with TABS[1]:
 
     if st.button("🔮 推算吉日", type="primary", key="rec_btn"):
         with st.spinner(f"正在排算 {search_days} 天黄历…"):
-            results = recommend_days(
-                event=event, persons=persons2,
+            results = cached_recommend(
+                event=event,
+                persons_key=_persons_key(persons2),
                 start=start_date, days=search_days, top_n=top_n,
-                school=school, exclude_weekdays=exclude_weekdays or None,
+                school=school,
+                exclude_weekdays_key=tuple(sorted(exclude_weekdays)) if exclude_weekdays else (),
             )
         st.session_state["last_results"] = results
         st.session_state["last_event"] = event
@@ -885,8 +990,8 @@ with TABS[2]:
     rows = []
     for day in range(1, days_in_month + 1):
         d = date(first.year, first.month, day)
-        a = get_day_almanac(d)
-        sb = score_day(a, event=m_event_arg, school=school)
+        a = cached_almanac(d)
+        sb = score_day_cached(a, event=m_event_arg, school=school)
         rows.append({
             "date": d, "weekday": d.weekday(),
             "score": sb.score, "fatal": sb.fatal,
@@ -967,7 +1072,7 @@ with TABS[3]:
     dt = maybe_correct(datetime.combine(bz_date, bz_time))
     if city != "不校正":
         st.caption(f"已按【{city}】校正真太阳时：{bz_time} → {dt:%H:%M:%S}")
-    bz = build_bazi(dt, gender=1 if bz_gender == "男" else 0)
+    bz = cached_bazi(dt, gender=1 if bz_gender == "男" else 0)
 
     st.markdown(f"### 四柱：{bz.year.ganzhi}　{bz.month.ganzhi}　{bz.day.ganzhi}　{bz.hour.ganzhi}")
 
@@ -1208,8 +1313,8 @@ with TABS[5]:
         f_time = st.time_input("出生时间", value=time(12, 0), key="hh_f_time")
 
     if st.button("💞 合婚分析", type="primary", key="hh_btn"):
-        groom = build_bazi(maybe_correct(datetime.combine(m_date, m_time)), gender=1)
-        bride = build_bazi(maybe_correct(datetime.combine(f_date, f_time)), gender=0)
+        groom = cached_bazi(maybe_correct(datetime.combine(m_date, m_time)), gender=1)
+        bride = cached_bazi(maybe_correct(datetime.combine(f_date, f_time)), gender=0)
         c1, c2 = st.columns(2)
         with c1:
             st.markdown(f"**男方**：{groom.year.ganzhi} {groom.month.ganzhi} {groom.day.ganzhi} {groom.hour.ganzhi}")
@@ -1428,8 +1533,8 @@ with TABS[8]:
         else:
             cmp_results = []
             for idx, d_pick in active:
-                a_pick = get_day_almanac(d_pick)
-                sb_pick = score_day(
+                a_pick = cached_almanac(d_pick)
+                sb_pick = score_day_cached(
                     a_pick, event=cmp_event_arg,
                     persons=cmp_persons, school=school,
                 )
