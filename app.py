@@ -13,7 +13,7 @@ Tab 划分：
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -30,31 +30,32 @@ def today_cn() -> date:
     """以东八区为准的"今天"。"""
     return datetime.now(CN_TZ).date()
 
-from core.almanac import get_day_almanac, get_birth_chart, EVENT_KEYWORDS
+from core.almanac import get_day_almanac, EVENT_KEYWORDS
 from core.hours import (
-    get_hour_slots, best_hours_for_event,
+    get_hour_slots,
     correct_birth_to_true_solar, CITY_LONGITUDE,
 )
 from core.bazi import build_bazi, hehun_score
 from core.directions import (
     year_directions, benming_gua, nine_star_grid, STAR_LUCK,
-    TWENTY_FOUR_SHAN, ZHI_DIRECTION,
+    TWENTY_FOUR_SHAN,
 )
 from core.calendars import (
-    get_jieqi_table, next_jieqi, current_jieqi_phase,
+    get_jieqi_table, current_jieqi_phase,
     san_fu, shu_jiu, moon_phase, holiday_of,
 )
 
-from divination.rules import HIT_LABEL
 from divination.scoring import score_day, verdict, recommend_days, SCHOOL_WEIGHTS
 from divination.wedding import zhoutang_for_wedding, avoid_persons_for_zhoutang, ZHOUTANG_POSITIONS
 from divination.dayun import evaluate_dayun, evaluate_liunian
 from divination.ziwei import build_ziwei, interpret_ming_gong, PALACES_REVERSE
+from divination.sources import source_for
 
 from output.export import export_ical, export_json, natural_language_summary
 from output.pdf_export import render_huangli_pdf
+from output.png_export import render_share_poster
 from output.llm import (
-    interpret_via_llm, is_llm_available, LLMConfig,
+    interpret_via_llm, LLMConfig,
     PROVIDER_ANTHROPIC, PROVIDER_OPENAI,
     BASE_URL_PRESETS, MODEL_PRESETS,
 )
@@ -226,6 +227,89 @@ with st.sidebar:
             st.caption("⚠ 配置不完整，将降级为规则式")
 
     st.markdown("---")
+
+    # === 查询历史与收藏 ===
+    if "query_history" not in st.session_state:
+        st.session_state.query_history = []  # list of ISO date strings, newest first
+    if "favorites" not in st.session_state:
+        st.session_state.favorites = []      # list of ISO date strings
+
+    with st.expander("📚 历史 / 收藏", expanded=False):
+        if st.session_state.favorites:
+            st.markdown("**⭐ 收藏**")
+            for fav in st.session_state.favorites[:10]:
+                c1, c2 = st.columns([4, 1])
+                c1.markdown(f"[`{fav}`](?date={fav})")
+                if c2.button("✕", key=f"unfav_{fav}", help="移除收藏"):
+                    st.session_state.favorites.remove(fav)
+                    st.rerun()
+            st.markdown("---")
+
+        if st.session_state.query_history:
+            st.markdown("**🕘 最近查询**")
+            for h in st.session_state.query_history[:8]:
+                c1, c2 = st.columns([4, 1])
+                c1.code(h, language=None)
+                if c2.button("⭐", key=f"fav_{h}", help="加入收藏"):
+                    if h not in st.session_state.favorites:
+                        st.session_state.favorites.insert(0, h)
+                        st.rerun()
+        else:
+            st.caption("尚无查询记录")
+
+        if st.session_state.query_history or st.session_state.favorites:
+            if st.button("🗑 清空历史", key="clear_hist"):
+                st.session_state.query_history = []
+                st.rerun()
+
+    st.markdown("---")
+
+    # === 我的生辰（用于个人每日运势） ===
+    with st.expander("👤 我的生辰（用于个人评分）", expanded=False):
+        if "my_birth" not in st.session_state:
+            st.session_state.my_birth = None
+        _my_enabled = st.checkbox(
+            "启用个人每日运势",
+            value=(st.session_state.my_birth is not None),
+            key="my_birth_enabled",
+        )
+        if _my_enabled:
+            _mc1, _mc2 = st.columns(2)
+            with _mc1:
+                _my_date = st.date_input(
+                    "出生日期", value=date(1990, 1, 1),
+                    min_value=date(1900, 1, 1), max_value=today_cn(),
+                    key="my_birth_date",
+                )
+            with _mc2:
+                _my_time = st.time_input(
+                    "出生时间", value=time(12, 0),
+                    key="my_birth_time",
+                )
+            _my_gender = st.selectbox("性别", ["男", "女"], key="my_birth_gender")
+            _my_dt = datetime.combine(_my_date, _my_time)
+            if city != "不校正":
+                _my_dt = correct_birth_to_true_solar(_my_dt, city)
+            try:
+                _my_bz = build_bazi(_my_dt, gender=1 if _my_gender == "男" else 0)
+                st.session_state.my_birth = {
+                    "label": "本人",
+                    "year_zhi": _my_bz.year_zhi,
+                    "year_shengxiao": _my_bz.shengxiao,
+                    "day_gan_wuxing": _my_bz.day_gan_wuxing,
+                    "yong_shen": _my_bz.yong_shen,
+                }
+                st.caption(
+                    f"✓ {_my_bz.year.ganzhi} {_my_bz.month.ganzhi} {_my_bz.day.ganzhi} {_my_bz.hour.ganzhi}　·　"
+                    f"{_my_bz.shengxiao}　·　日主 {_my_bz.day_gan}({_my_bz.day_gan_wuxing})"
+                )
+            except Exception as e:
+                st.session_state.my_birth = None
+                st.caption(f"⚠ 排盘失败：{e}")
+        else:
+            st.session_state.my_birth = None
+
+    st.markdown("---")
     st.caption("💡 本工具为文化参考，非命定预测。")
 
 
@@ -251,11 +335,109 @@ def llm_or_rule_summary(result: dict, event: Optional[str] = None,
     return natural_language_summary(result)
 
 
+# ============================================================
+# 今日速览 hero（在 tabs 之上，打开即见）
+# ============================================================
+_today = today_cn()
+_today_a = get_day_almanac(_today)
+
+# 如果用户在侧栏配置了"我的生辰"，hero 评分就以个人视角计算
+_my_persons = [st.session_state["my_birth"]] if st.session_state.get("my_birth") else []
+_today_sb = score_day(_today_a, persons=_my_persons, school=school)
+_today_v = verdict(_today_sb.score, _today_sb.fatal)
+
+_HERO_COLOR_MAP = {
+    "上吉": "#1b5e20", "吉": "#2e7d32", "中平": "#f9a825",
+    "次": "#ef6c00", "凶": "#b71c1c", "大凶 · 不取": "#7f0000",
+}
+_hero_color = _HERO_COLOR_MAP.get(_today_v, "#555")
+
+# === 节气主题：按当前节气期判定季节，给 hero 上色 ===
+# 春青、夏赤、秋白、冬玄
+_SEASON_THEMES = {
+    "春": {"bg": "#eef7ee", "border": "#2e7d32", "name": "春 · 木青"},
+    "夏": {"bg": "#fdecea", "border": "#c62828", "name": "夏 · 火赤"},
+    "秋": {"bg": "#f8f5f0", "border": "#a98c5d", "name": "秋 · 金白"},
+    "冬": {"bg": "#eaf1f7", "border": "#1565c0", "name": "冬 · 水玄"},
+}
+_SPRING_JQ = {"立春", "雨水", "惊蛰", "春分", "清明", "谷雨"}
+_SUMMER_JQ = {"立夏", "小满", "芒种", "夏至", "小暑", "大暑"}
+_AUTUMN_JQ = {"立秋", "处暑", "白露", "秋分", "寒露", "霜降"}
+_WINTER_JQ = {"立冬", "小雪", "大雪", "冬至", "小寒", "大寒"}
+
+
+def _season_of(jq_name: str) -> str:
+    if jq_name in _SPRING_JQ:
+        return "春"
+    if jq_name in _SUMMER_JQ:
+        return "夏"
+    if jq_name in _AUTUMN_JQ:
+        return "秋"
+    if jq_name in _WINTER_JQ:
+        return "冬"
+    return ""
+
+
+_phase = current_jieqi_phase(_today)
+_season = _season_of(_phase.get("current") or _phase.get("next") or "")
+_theme = _SEASON_THEMES.get(_season)
+
+# 主题色 CSS 注入（仅作用于 hero 容器，避免影响其它部分）
+if _theme:
+    st.markdown(
+        f"""
+<style>
+[data-testid="stMainBlockContainer"] div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type {{
+    background: {_theme['bg']};
+    border-color: {_theme['border']} !important;
+}}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+with st.container(border=True):
+    if _theme:
+        st.caption(f"🍃 当前节气期 · {_theme['name']}")
+    hc1, hc2, hc3, hc4 = st.columns([1.3, 2.5, 3.5, 1.7])
+    with hc1:
+        st.markdown(
+            f"<div style='text-align:center'>"
+            f"<div style='color:#888;font-size:12px;margin-bottom:2px'>今　日</div>"
+            f"<div style='color:{_hero_color};font-size:30px;font-weight:bold;line-height:1.2'>{_today_v}</div>"
+            f"<div style='color:#666;font-size:13px;margin-top:4px'>{_today_sb.score} / 100</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with hc2:
+        st.markdown(f"### {_today.isoformat()}")
+        st.caption(f"{_today_a.lunar_str}")
+        st.caption(f"{_today_a.ganzhi_year}年 {_today_a.ganzhi_month}月 **{_today_a.ganzhi_day}日**　·　{_today_a.shengxiao_year}年")
+        st.caption(f"建除【{_today_a.jianchu}】 · {_today_a.tianshen}（{_today_a.tianshen_type}） · {_today_a.xiu}宿（{_today_a.xiu_luck}）")
+    with hc3:
+        _yi_text = "　".join(_today_a.yi[:8]) if _today_a.yi else "—"
+        _ji_text = "　".join(_today_a.ji[:8]) if _today_a.ji else "—"
+        st.markdown(
+            f"<div style='line-height:1.7'>"
+            f"<span style='color:#2e7d32;font-weight:bold'>宜　</span>"
+            f"<span style='color:#1b5e20'>{_yi_text}</span><br>"
+            f"<span style='color:#c62828;font-weight:bold'>忌　</span>"
+            f"<span style='color:#7f0000'>{_ji_text}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with hc4:
+        st.markdown(f"**冲煞**　{_today_a.chong_desc}")
+        st.caption(f"煞 {_today_a.sha}")
+        st.caption(f"喜神 {_today_a.xi_shen_fang}　财神 {_today_a.cai_shen_fang}")
+
+st.markdown("")  # 与下方 tabs 留一行
+
 # 9 个 Tab
 TABS = st.tabs([
     "📅 单日吉凶", "💍 择吉推荐", "🗓 月历视图",
     "🎴 八字排盘", "🧭 方位罗盘", "❤️ 合婚",
-    "🌿 节令", "⭐ 紫微斗数", "⚙️ 设置说明",
+    "🌿 节令", "⭐ 紫微斗数", "📊 并排比较", "⚙️ 设置说明",
 ])
 
 
@@ -344,6 +526,34 @@ def render_taboos(taboos: dict):
         st.warning("**传统凶日命中**：" + "、".join(bad.keys()))
     if good:
         st.success("**传统吉日命中**：" + "、".join(good.keys()))
+
+
+def render_sources(a, taboos: dict):
+    """展开查看当日各项规则的典籍出处。"""
+    with st.expander("📖 算法 / 典籍依据（点开查看引文）", expanded=False):
+        rows = []
+        s = source_for("huangdao", a.tianshen)
+        if s:
+            rows.append(("黄黑道", a.tianshen, s))
+        s = source_for("jianchu", a.jianchu)
+        if s:
+            rows.append(("建除十二神", a.jianchu, s))
+        s = source_for("xiu", a.xiu)
+        if s:
+            rows.append(("二十八宿", a.xiu, s))
+        for name in a.jishen:
+            s = source_for("jishen", name)
+            if s:
+                rows.append(("吉神", name, s))
+        for name in (taboos or {}):
+            s = source_for("taboo", name)
+            if s:
+                rows.append(("凶日 / 神煞", name, s))
+        if not rows:
+            st.caption("当日命中规则均为通行常识，无典籍引文。")
+            return
+        for kind, name, src in rows:
+            st.markdown(f"**【{kind} · {name}】**　{src}")
 
 
 def render_hour_table(d: date):
@@ -439,6 +649,30 @@ with TABS[0]:
 
     render_almanac_card(a, sb.score, v)
     render_taboos(sb.taboos)
+    render_sources(a, sb.taboos)
+
+    # 记录查询历史 + 收藏按钮
+    _q_iso = query_date.isoformat()
+    if _q_iso in st.session_state.query_history:
+        st.session_state.query_history.remove(_q_iso)
+    st.session_state.query_history.insert(0, _q_iso)
+    st.session_state.query_history = st.session_state.query_history[:20]
+
+    _fav_c1, _fav_c2 = st.columns([1, 4])
+    with _fav_c1:
+        _is_fav = _q_iso in st.session_state.favorites
+        if st.button(
+            "⭐ 已收藏" if _is_fav else "☆ 收藏此日",
+            key="single_fav_btn",
+        ):
+            if _is_fav:
+                st.session_state.favorites.remove(_q_iso)
+            else:
+                st.session_state.favorites.insert(0, _q_iso)
+            st.rerun()
+    with _fav_c2:
+        if st.session_state.favorites and not _is_fav:
+            st.caption(f"已收藏 {len(st.session_state.favorites)} 个日期")
 
     st.markdown("---")
     st.markdown("### ⏰ 12 时辰盘")
@@ -465,18 +699,34 @@ with TABS[0]:
     with st.spinner("生成解读中…" if use_llm else None):
         st.markdown(llm_or_rule_summary(result, event=event_arg, persons=persons))
 
-    # PDF 下载
+    # 导出
     st.markdown("---")
-    if st.button("📄 生成传统老黄历 PDF", key="single_pdf_btn"):
-        with st.spinner("生成 PDF 中…"):
-            pdf_bytes = render_huangli_pdf(query_date)
-        st.download_button(
-            "📥 下载 PDF",
-            data=pdf_bytes,
-            file_name=f"huangli_{query_date.isoformat()}.pdf",
-            mime="application/pdf",
-            key="single_pdf_dl",
-        )
+    exp_c1, exp_c2 = st.columns(2)
+    with exp_c1:
+        if st.button("📄 生成传统老黄历 PDF", key="single_pdf_btn", use_container_width=True):
+            with st.spinner("生成 PDF 中…"):
+                pdf_bytes = render_huangli_pdf(query_date)
+            st.download_button(
+                "📥 下载 PDF",
+                data=pdf_bytes,
+                file_name=f"huangli_{query_date.isoformat()}.pdf",
+                mime="application/pdf",
+                key="single_pdf_dl",
+                use_container_width=True,
+            )
+    with exp_c2:
+        if st.button("🖼️ 生成分享海报 PNG", key="single_png_btn", use_container_width=True):
+            with st.spinner("生成海报中…"):
+                png_bytes = render_share_poster(query_date, event=event_arg, school=school)
+            st.download_button(
+                "📥 下载海报",
+                data=png_bytes,
+                file_name=f"xieji_{query_date.isoformat()}.png",
+                mime="image/png",
+                key="single_png_dl",
+                use_container_width=True,
+            )
+            st.image(png_bytes, caption="海报预览", width=320)
 
 
 # ============================================================
@@ -767,6 +1017,55 @@ with TABS[3]:
         for d in yun_eval
     ])
     st.dataframe(yun_df, use_container_width=True, hide_index=True)
+
+    # 可视化：横向时间线（柱长 = 10 年，色深 = 评分）
+    st.markdown("##### 大运时间线（色深=评分高低）")
+    _verdict_color = {
+        "佳运": "#1b5e20", "顺运": "#558b2f", "平运": "#f9a825",
+        "蹇运": "#ef6c00", "厄运": "#b71c1c",
+    }
+    if yun_eval:
+        _min_year = yun_eval[0]["start_year"]
+        _max_year = yun_eval[-1]["start_year"] + 10
+        _span = max(1, _max_year - _min_year)
+        _tl_w = 900
+        _tl_h = 70
+        _seg_h = 36
+        _tl_html = [
+            f'<svg viewBox="0 0 {_tl_w} {_tl_h}" '
+            f'style="width:100%;max-width:{_tl_w}px;background:#fafafa;border:1px solid #ddd;border-radius:4px">'
+        ]
+        for d in yun_eval:
+            x = int((d["start_year"] - _min_year) / _span * (_tl_w - 40)) + 20
+            w = int(10 / _span * (_tl_w - 40))
+            opacity = 0.3 + (d["score"] / 100) * 0.7
+            color = _verdict_color.get(d["verdict"], "#888")
+            _tl_html.append(
+                f'<rect x="{x}" y="20" width="{w}" height="{_seg_h}" '
+                f'fill="{color}" fill-opacity="{opacity:.2f}" stroke="{color}" stroke-width="0.5"/>'
+            )
+            _tl_html.append(
+                f'<text x="{x + w // 2}" y="{20 + _seg_h // 2 + 4}" text-anchor="middle" '
+                f'fill="#fff" font-size="11" font-weight="bold">{d["ganzhi"]}</text>'
+            )
+            _tl_html.append(
+                f'<text x="{x + w // 2}" y="14" text-anchor="middle" fill="#666" font-size="10">'
+                f'{d["start_age"]}岁</text>'
+            )
+            _tl_html.append(
+                f'<text x="{x + w // 2}" y="{20 + _seg_h + 12}" text-anchor="middle" '
+                f'fill="#888" font-size="10">{d["start_year"]}</text>'
+            )
+        _tl_html.append("</svg>")
+        st.markdown("".join(_tl_html), unsafe_allow_html=True)
+
+    # 评分柱状图
+    st.markdown("##### 大运评分分布")
+    chart_df = pd.DataFrame([
+        {"大运": f"{d['start_age']}岁 {d['ganzhi']}", "评分": d["score"], "等级": d["verdict"]}
+        for d in yun_eval
+    ])
+    st.bar_chart(chart_df.set_index("大运")["评分"], height=200)
 
     for i, d in enumerate(yun_eval[:6]):
         col_map = {"佳运": "#1b5e20", "顺运": "#388e3c", "平运": "#f9a825",
@@ -1079,9 +1378,205 @@ with TABS[7]:
 
 
 # ============================================================
-# Tab 9: 设置说明
+# Tab 9: 并排比较
 # ============================================================
 with TABS[8]:
+    st.markdown("**输入 2-5 个候选日，并排打分；高亮最佳。**适合婚嫁、动土在几个备选日之间决断。")
+
+    cmp_c1, cmp_c2 = st.columns(2)
+    with cmp_c1:
+        cmp_event = st.selectbox(
+            "事项类型（用于打分）",
+            ["（通用吉凶）"] + list(EVENT_KEYWORDS.keys()),
+            key="cmp_event",
+        )
+    with cmp_c2:
+        cmp_person_count = st.number_input(
+            "当事人数", min_value=0, max_value=4, value=0, step=1, key="cmp_pc"
+        )
+
+    cmp_event_arg = None if cmp_event.startswith("（") else cmp_event
+
+    st.markdown("##### 候选日期")
+    cmp_date_cols = st.columns(5)
+    cmp_default_dates = [
+        _today,
+        _today + timedelta(days=1),
+        _today + timedelta(days=7),
+        _today + timedelta(days=14),
+        _today + timedelta(days=30),
+    ]
+    cmp_dates: list[date] = []
+    cmp_enable: list[bool] = []
+    for i in range(5):
+        with cmp_date_cols[i]:
+            enable = st.checkbox(f"候选 {i + 1}", value=(i < 3), key=f"cmp_en_{i}")
+            d_pick = st.date_input(
+                "日期", value=cmp_default_dates[i],
+                min_value=date(1900, 1, 1), max_value=date(2100, 12, 31),
+                key=f"cmp_d_{i}", label_visibility="collapsed",
+            )
+            cmp_dates.append(d_pick)
+            cmp_enable.append(enable)
+
+    cmp_persons = persons_input("cmp", cmp_person_count) if cmp_person_count > 0 else []
+
+    if st.button("⚖️ 比较打分", type="primary", key="cmp_btn"):
+        active = [(i, d) for i, (d, e) in enumerate(zip(cmp_dates, cmp_enable)) if e]
+        if len(active) < 2:
+            st.warning("请至少勾选 2 个候选日。")
+        else:
+            cmp_results = []
+            for idx, d_pick in active:
+                a_pick = get_day_almanac(d_pick)
+                sb_pick = score_day(
+                    a_pick, event=cmp_event_arg,
+                    persons=cmp_persons, school=school,
+                )
+                v_pick = verdict(sb_pick.score, sb_pick.fatal)
+                keywords = EVENT_KEYWORDS.get(cmp_event_arg, [cmp_event_arg]) if cmp_event_arg else []
+                hit_yi = [k for k in keywords if k in a_pick.yi] if cmp_event_arg else []
+                hit_ji = [k for k in keywords if k in a_pick.ji] if cmp_event_arg else []
+                cmp_results.append({
+                    "候选": f"#{idx + 1}",
+                    "公历": d_pick.isoformat(),
+                    "星期": ["一", "二", "三", "四", "五", "六", "日"][d_pick.weekday()],
+                    "农历": a_pick.lunar_str.split("年")[-1],
+                    "干支": a_pick.ganzhi_day,
+                    "评分": sb_pick.score,
+                    "等级": v_pick,
+                    "fatal": sb_pick.fatal,
+                    "宜本事": "✓" + "/".join(hit_yi) if hit_yi else "",
+                    "忌本事": "✗" + "/".join(hit_ji) if hit_ji else "",
+                    "冲煞": a_pick.chong_desc,
+                    "凶日": "、".join(k for k in sb_pick.taboos.keys() if k != "不将日(嫁娶吉)")[:30],
+                    "宜": "、".join(a_pick.yi[:5]),
+                    "_almanac": a_pick,
+                    "_sb": sb_pick,
+                    "_date": d_pick,
+                })
+
+            # 找最佳（fatal 不计；按 score 降序）
+            non_fatal = [r for r in cmp_results if not r["fatal"]]
+            best_idx = None
+            if non_fatal:
+                best_score = max(r["评分"] for r in non_fatal)
+                for i, r in enumerate(cmp_results):
+                    if r in non_fatal and r["评分"] == best_score:
+                        best_idx = i
+                        break
+
+            # 显示表
+            display_rows = []
+            for i, r in enumerate(cmp_results):
+                marker = "🏆" if i == best_idx else ("⛔" if r["fatal"] else "　")
+                display_rows.append({
+                    "": marker,
+                    "候选": r["候选"],
+                    "公历": r["公历"],
+                    "周": r["星期"],
+                    "农历": r["农历"],
+                    "干支": r["干支"],
+                    "评分": r["评分"],
+                    "等级": r["等级"],
+                    "宜本事": r["宜本事"],
+                    "忌本事": r["忌本事"],
+                    "冲煞": r["冲煞"],
+                    "凶日": r["凶日"],
+                    "宜": r["宜"],
+                })
+            st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
+
+            if best_idx is not None:
+                best = cmp_results[best_idx]
+                st.success(
+                    f"🏆 推荐：**{best['公历']}**（{best['干支']}日，{best['等级']}，{best['评分']}/100）"
+                )
+
+            # 雷达图：可视化各候选维度
+            st.markdown("##### 五维评分雷达图")
+            import math
+            radar_html = ['<svg viewBox="0 0 600 400" style="width:100%;max-width:800px">']
+            # 5 个维度：黄黑道、建除、星宿、宜本事、神煞
+            dims = ["黄黑道", "建除", "二十八宿", "宜忌匹配", "神煞净"]
+            cx, cy, r = 300, 200, 130
+            angles = [-math.pi / 2 + i * 2 * math.pi / 5 for i in range(5)]
+
+            # 外圈刻度
+            for level in [0.25, 0.5, 0.75, 1.0]:
+                pts = [
+                    (cx + r * level * math.cos(a), cy + r * level * math.sin(a))
+                    for a in angles
+                ]
+                pts_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+                radar_html.append(
+                    f'<polygon points="{pts_str}" fill="none" stroke="#ddd" stroke-width="0.5"/>'
+                )
+            # 维度轴
+            for a in angles:
+                radar_html.append(
+                    f'<line x1="{cx}" y1="{cy}" x2="{cx + r * math.cos(a):.1f}" '
+                    f'y2="{cy + r * math.sin(a):.1f}" stroke="#ccc" stroke-width="0.5"/>'
+                )
+            # 标签
+            for i, name in enumerate(dims):
+                a = angles[i]
+                lx = cx + (r + 22) * math.cos(a)
+                ly = cy + (r + 22) * math.sin(a)
+                radar_html.append(
+                    f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" '
+                    f'dominant-baseline="middle" font-size="12" fill="#555">{name}</text>'
+                )
+
+            colors = ["#1976d2", "#388e3c", "#f57c00", "#c2185b", "#7b1fa2"]
+            for i, rs in enumerate(cmp_results):
+                a_pick = rs["_almanac"]
+                sb_pick = rs["_sb"]
+                vals = [
+                    1.0 if a_pick.tianshen in {"青龙", "明堂", "金匮", "天德", "玉堂", "司命"} else 0.2,
+                    {"建": 0.5, "除": 0.85, "满": 0.5, "平": 0.5, "定": 0.9,
+                     "执": 0.85, "破": 0.1, "危": 0.85, "成": 0.95, "收": 0.5,
+                     "开": 0.85, "闭": 0.3}.get(a_pick.jianchu, 0.5),
+                    0.9 if a_pick.xiu_luck == "吉" else 0.2,
+                    (1.0 if rs["宜本事"] else (0.0 if rs["忌本事"] else 0.5)) if cmp_event_arg else 0.5,
+                    max(0, min(1, 0.5 + 0.1 * (len(a_pick.jishen) - len(a_pick.xiongsha)))),
+                ]
+                pts = [
+                    (cx + r * v * math.cos(a), cy + r * v * math.sin(a))
+                    for v, a in zip(vals, angles)
+                ]
+                pts_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+                c = colors[i % len(colors)]
+                radar_html.append(
+                    f'<polygon points="{pts_str}" fill="{c}" fill-opacity="0.15" '
+                    f'stroke="{c}" stroke-width="1.5"/>'
+                )
+                # 图例
+                radar_html.append(
+                    f'<rect x="{460}" y="{60 + i * 22}" width="14" height="14" fill="{c}" fill-opacity="0.4" stroke="{c}"/>'
+                )
+                radar_html.append(
+                    f'<text x="{482}" y="{72 + i * 22}" font-size="12" fill="#333">'
+                    f'{rs["候选"]} {rs["公历"]} ({rs["评分"]})</text>'
+                )
+            radar_html.append('</svg>')
+            st.markdown("".join(radar_html), unsafe_allow_html=True)
+
+            # 详情：top 2 完整卡片
+            st.markdown("##### 前两名详情")
+            sorted_results = sorted(non_fatal, key=lambda x: -x["评分"])[:2]
+            for r in sorted_results:
+                with st.expander(
+                    f"{r['公历']} · {r['干支']}日 · {r['等级']} · {r['评分']}/100",
+                    expanded=False,
+                ):
+                    render_almanac_card(r["_almanac"], r["评分"], r["等级"])
+
+
+# ============================================================
+# Tab 10: 设置说明
+# ============================================================
+with TABS[9]:
     st.markdown("### 各流派权重对照")
     rows = []
     for sch, w in SCHOOL_WEIGHTS.items():
