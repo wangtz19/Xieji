@@ -19,11 +19,14 @@ from core.almanac import get_day_almanac
 _FONT_REG = False
 FONT_NAME = "SourceHanSerifSC"
 FONT_PATH_CANDIDATES = [
-    # Linux - 思源 / Noto / 微雅黑
+    # Linux - 思源 / Noto / 微雅黑（含 Debian bookworm 实际命名）
     "/usr/share/fonts/sourcehan/SourceHanSerifSC-Regular.otf",
     "/usr/share/fonts/sourcehan/SourceHanSerifSC-Bold.otf",
     "/usr/share/fonts/opentype/source-han-serif/SourceHanSerifSC-Regular.otf",
+    "/usr/share/fonts/opentype/noto-cjk/NotoSerifCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto-cjk/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
     "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",

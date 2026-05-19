@@ -24,6 +24,20 @@ streamlit run app.py
 
 或在侧边栏临时输入 API key。无 key 时自动降级为规则式解读。
 
+### 中文字体（PDF / PNG 导出必备）
+
+PDF 老黄历与分享海报 PNG 都需要本机存在 **中文字体**，否则会输出"豆腐方块"。仓库内置候选路径已覆盖 macOS / Windows 常见字体，**Linux 需手动装一次**：
+
+```bash
+# Debian / Ubuntu（含 GitHub Codespaces / VS Code devcontainer）
+sudo apt install -y fonts-noto-cjk fonts-noto-cjk-extra
+
+# CentOS / RHEL / Fedora
+sudo dnf install -y google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts
+```
+
+devcontainer 用户**无需手动操作**：仓库根目录的 `packages.txt` 会在容器首次启动时自动 `apt install`。
+
 ---
 
 ## 功能 Tab 导览
